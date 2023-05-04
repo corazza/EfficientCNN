@@ -32,10 +32,11 @@ def estimate_ranks(layer):
     return ranks
 
 
-def tucker_decomposition_conv_layer(layer):
+def tucker_decomposition_conv_layer(layer, ranks=None):
     tl.set_backend('pytorch')
 
-    ranks = estimate_ranks(layer)
+    if ranks == None:
+        ranks = estimate_ranks(layer)
 
     (core, factors), rec_errors = \
         partial_tucker(layer.weight,
@@ -67,32 +68,52 @@ def tucker_decomposition_conv_layer(layer):
 
 def tuckerify_model(model):
     conv1_layer = model.conv1
-    model.conv1 = tucker_decomposition_conv_layer(conv1_layer)
+    rank_i = 0
+
+    model.conv1 = tucker_decomposition_conv_layer(conv1_layer, RANKS[rank_i])
+    rank_i += 1
 
     for i in range(2):
         layer1_conv1 = model.layer1[i].conv1
-        model.layer1[i].conv1 = tucker_decomposition_conv_layer(layer1_conv1)
+        model.layer1[i].conv1 = tucker_decomposition_conv_layer(
+            layer1_conv1, ranks=RANKS[rank_i])
+        rank_i += 1
         layer1_conv2 = model.layer1[i].conv2
-        model.layer1[i].conv2 = tucker_decomposition_conv_layer(layer1_conv2)
+        model.layer1[i].conv2 = tucker_decomposition_conv_layer(
+            layer1_conv2, ranks=RANKS[rank_i])
+        rank_i += 1
 
     for i in range(2):
         layer2_conv1 = model.layer2[i].conv1
-        model.layer2[i].conv1 = tucker_decomposition_conv_layer(layer2_conv1)
+        model.layer2[i].conv1 = tucker_decomposition_conv_layer(
+            layer2_conv1, ranks=RANKS[rank_i])
+        rank_i += 1
         layer2_conv2 = model.layer2[i].conv2
-        model.layer2[i].conv2 = tucker_decomposition_conv_layer(layer2_conv2)
+        model.layer2[i].conv2 = tucker_decomposition_conv_layer(
+            layer2_conv2, ranks=RANKS[rank_i])
+        rank_i += 1
 
     for i in range(2):
         layer3_conv1 = model.layer3[i].conv1
-        model.layer3[i].conv1 = tucker_decomposition_conv_layer(layer3_conv1)
+        model.layer3[i].conv1 = tucker_decomposition_conv_layer(
+            layer3_conv1, ranks=RANKS[rank_i])
+        rank_i += 1
         layer3_conv2 = model.layer3[i].conv2
-        model.layer3[i].conv2 = tucker_decomposition_conv_layer(layer3_conv2)
+        model.layer3[i].conv2 = tucker_decomposition_conv_layer(
+            layer3_conv2, ranks=RANKS[rank_i])
+        rank_i += 1
 
     for i in range(2):
         layer4_conv1 = model.layer4[i].conv1
-        model.layer4[i].conv1 = tucker_decomposition_conv_layer(layer4_conv1)
+        model.layer4[i].conv1 = tucker_decomposition_conv_layer(
+            layer4_conv1, ranks=RANKS[rank_i])
+        rank_i += 1
         layer4_conv2 = model.layer4[i].conv2
-        model.layer4[i].conv2 = tucker_decomposition_conv_layer(layer4_conv2)
+        model.layer4[i].conv2 = tucker_decomposition_conv_layer(
+            layer4_conv2, ranks=RANKS[rank_i])
+        rank_i += 1
 
+    assert rank_i == len(RANKS)
     return model
 
 
