@@ -230,7 +230,7 @@ def EVBMF(Y, sigma2=None, H=None):
                                      lower_bound, upper_bound], method='Bounded')
         sigma2 = sigma2_opt.x
 
-        print(sigma2)
+        # print(sigma2)
 
     # Threshold gamma term
     threshold = np.sqrt(M*sigma2*(1+tauubar)*(1+alpha/tauubar))

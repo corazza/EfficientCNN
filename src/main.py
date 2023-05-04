@@ -95,8 +95,32 @@ def test(device, model, test_loader):
 
 def tuckerify_model(model):
     conv1_layer = model.conv1
-    new_conv1 = tucker_decomposition_conv_layer(conv1_layer)
-    model.conv1 = new_conv1
+    model.conv1 = tucker_decomposition_conv_layer(conv1_layer)
+
+    for i in range(2):
+        layer1_conv1 = model.layer1[i].conv1
+        model.layer1[i].conv1 = tucker_decomposition_conv_layer(layer1_conv1)
+        layer1_conv2 = model.layer1[i].conv2
+        model.layer1[i].conv2 = tucker_decomposition_conv_layer(layer1_conv2)
+
+    for i in range(2):
+        layer2_conv1 = model.layer2[i].conv1
+        model.layer2[i].conv1 = tucker_decomposition_conv_layer(layer2_conv1)
+        layer2_conv2 = model.layer2[i].conv2
+        model.layer2[i].conv2 = tucker_decomposition_conv_layer(layer2_conv2)
+
+    for i in range(2):
+        layer3_conv1 = model.layer3[i].conv1
+        model.layer3[i].conv1 = tucker_decomposition_conv_layer(layer3_conv1)
+        layer3_conv2 = model.layer3[i].conv2
+        model.layer3[i].conv2 = tucker_decomposition_conv_layer(layer3_conv2)
+
+    for i in range(2):
+        layer4_conv1 = model.layer4[i].conv1
+        model.layer4[i].conv1 = tucker_decomposition_conv_layer(layer4_conv1)
+        layer4_conv2 = model.layer4[i].conv2
+        model.layer4[i].conv2 = tucker_decomposition_conv_layer(layer4_conv2)
+
     return model
 
 
@@ -127,14 +151,14 @@ def main():
 
     # model = Network().to(device)
     model = models.resnet18(pretrained=True)
+    # IPython.embed()
+
     print(f'Original # parameters: {count_parameters(model)}')
     model = tuckerify_model(model)
     print(f'# parameters after tuckerification: {count_parameters(model)}')
 
-    # train(device, model, train_loader)
-    # test(device, model, test_loader)
-
-    IPython.embed()
+    train(device, model, train_loader)
+    test(device, model, test_loader)
 
 
 if __name__ == '__main__':
