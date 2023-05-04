@@ -136,15 +136,12 @@ def test(model, test_loader) -> float:
 
 def train_test(name: str, model, train_loader, test_loader):
     print(f'Training {name} for {NUM_EPOCHS} epochs')
-    train_start = timer()
+    start = timer()
     train(model, train_loader)
-    train_end = timer()
-    eval_start = timer()
-    for i in range(30):
-        accuracy = test(model, test_loader)
-    eval_end = timer()
+    end = timer()
+    accuracy = test(model, test_loader)
     print(
-        f'Done, accuracy = {accuracy:.4f}%, training time = {train_end - train_start:.4f}s, eval time = {eval_end - eval_start:.4f}s')
+        f'Done, accuracy = {accuracy:.4f}%, training time = {end - start:.4f}s')
 
 
 def main():
