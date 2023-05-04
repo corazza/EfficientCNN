@@ -1,4 +1,4 @@
-NUM_EPOCHS = 20
+NUM_EPOCHS = 2
 
 RANKS_VBMF = [
     [29, 2],

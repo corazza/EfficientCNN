@@ -66,55 +66,47 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     return nn.Sequential(*new_layers)
 
 
-def tuckerify_model(model):
+def optimize_model(model, optim_conv_layer):
     conv1_layer = model.conv1
-    rank_i = 0
 
-    model.conv1 = tucker_decomposition_conv_layer(conv1_layer, RANKS[rank_i])
-    rank_i += 1
+    model.conv1 = optim_conv_layer(conv1_layer)
 
     for i in range(2):
         layer1_conv1 = model.layer1[i].conv1
-        model.layer1[i].conv1 = tucker_decomposition_conv_layer(
-            layer1_conv1, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer1[i].conv1 = optim_conv_layer(layer1_conv1)
         layer1_conv2 = model.layer1[i].conv2
-        model.layer1[i].conv2 = tucker_decomposition_conv_layer(
-            layer1_conv2, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer1[i].conv2 = optim_conv_layer(layer1_conv2)
 
     for i in range(2):
         layer2_conv1 = model.layer2[i].conv1
-        model.layer2[i].conv1 = tucker_decomposition_conv_layer(
-            layer2_conv1, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer2[i].conv1 = optim_conv_layer(layer2_conv1)
         layer2_conv2 = model.layer2[i].conv2
-        model.layer2[i].conv2 = tucker_decomposition_conv_layer(
-            layer2_conv2, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer2[i].conv2 = optim_conv_layer(layer2_conv2)
 
     for i in range(2):
         layer3_conv1 = model.layer3[i].conv1
-        model.layer3[i].conv1 = tucker_decomposition_conv_layer(
-            layer3_conv1, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer3[i].conv1 = optim_conv_layer(layer3_conv1)
         layer3_conv2 = model.layer3[i].conv2
-        model.layer3[i].conv2 = tucker_decomposition_conv_layer(
-            layer3_conv2, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer3[i].conv2 = optim_conv_layer(layer3_conv2)
 
     for i in range(2):
         layer4_conv1 = model.layer4[i].conv1
-        model.layer4[i].conv1 = tucker_decomposition_conv_layer(
-            layer4_conv1, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer4[i].conv1 = optim_conv_layer(layer4_conv1)
         layer4_conv2 = model.layer4[i].conv2
-        model.layer4[i].conv2 = tucker_decomposition_conv_layer(
-            layer4_conv2, ranks=RANKS[rank_i])
-        rank_i += 1
+        model.layer4[i].conv2 = optim_conv_layer(layer4_conv2)
 
-    assert rank_i == len(RANKS)
     return model
+
+
+def tucker_wrapper():
+    rank_i = 0
+
+    def optim_conv_layer(layer):
+        nonlocal rank_i
+        result = tucker_decomposition_conv_layer(layer, RANKS[rank_i])
+        rank_i += 1
+        return result
+    return optim_conv_layer
 
 
 def train(model, train_loader):
@@ -187,13 +179,13 @@ def main():
     n_params_original = count_parameters(model_original)
 
     model_tuckerified = copy.deepcopy(model_original)
-    print('Tuckerification...')
-    model_tuckerified = tuckerify_model(model_tuckerified)
+    print('Model optimization...')
+    model_tuckerified = optimize_model(model_tuckerified, tucker_wrapper())
     n_params_tuckerified = count_parameters(model_tuckerified)
 
     print(f'No. parameters original = {n_params_original}')
     print(
-        f'No. parameters tuckerified = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
+        f'No. parameters optimized = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
 
     train_test('original model', model_original, train_loader, test_loader)
     train_test('tuckerified model', model_tuckerified,
