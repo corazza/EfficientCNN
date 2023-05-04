@@ -24,4 +24,10 @@ RANKS_VBMF = [
 RANKS_HARD = [[int(x/2) if x > 10 else x, int(y/2) if y > 10 else y]
               for [x, y] in RANKS_VBMF]
 
+RANKS_CP = [[int(x/10) if x > 10 else x, int(y/10) if y > 10 else y]
+            for [x, y] in RANKS_VBMF]
+
+# RANKS_CP = RANKS_HARD
+
+
 RANKS = RANKS_HARD
