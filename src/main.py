@@ -1,3 +1,6 @@
+import copy
+from timeit import default_timer as timer
+
 import IPython
 import numpy as np
 import tensorly as tl
@@ -13,6 +16,10 @@ from torchvision.datasets import CIFAR10
 
 import VBMF
 from consts import *
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def estimate_ranks(layer):
@@ -54,43 +61,8 @@ def tucker_decomposition_conv_layer(layer):
     core_layer.weight.data = core
 
     new_layers = [first_layer, core_layer, last_layer]
+    # print(ranks)
     return nn.Sequential(*new_layers)
-
-
-def train(device, model, train_loader):
-    model = model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    for epoch in range(NUM_EPOCHS):
-        running_loss = 0.0
-        for i, (inputs, labels) in enumerate(train_loader, 0):
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-        epoch_loss = running_loss / (i + 1)
-        print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.4f}")
-    print("Training finished.")
-
-
-def test(device, model, test_loader):
-    correct = 0
-    total = 0
-    model = model.to(device)
-    model.eval()
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    accuracy = 100 * correct / total
-    print(f"Accuracy of the model on the 10000 test images: {accuracy:.2f}%")
 
 
 def tuckerify_model(model):
@@ -124,8 +96,55 @@ def tuckerify_model(model):
     return model
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def train(model, train_loader):
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    for epoch in range(NUM_EPOCHS):
+        running_loss = 0.0
+        for i, (inputs, labels) in enumerate(train_loader, 0):
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        epoch_loss = running_loss / (i + 1)
+        print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.4f}")
+
+
+def test(model, test_loader) -> float:
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available() else "cpu")
+    correct = 0
+    total = 0
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    return 100 * correct / total
+
+
+def train_test(name: str, model, train_loader, test_loader):
+    print(f'Training {name} for {NUM_EPOCHS} epochs')
+    train_start = timer()
+    train(model, train_loader)
+    train_end = timer()
+    eval_start = timer()
+    for i in range(30):
+        accuracy = test(model, test_loader)
+    eval_end = timer()
+    print(
+        f'Done, accuracy = {accuracy:.4f}%, training time = {train_end - train_start:.4f}s, eval time = {eval_end - eval_start:.4f}s')
 
 
 def main():
@@ -146,19 +165,21 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=100,
                              shuffle=False, num_workers=2)
 
-    device = torch.device(
-        "cuda:0" if torch.cuda.is_available() else "cpu")
+    model_original = models.resnet18(pretrained=True)
+    n_params_original = count_parameters(model_original)
 
-    # model = Network().to(device)
-    model = models.resnet18(pretrained=True)
-    # IPython.embed()
+    model_tuckerified = copy.deepcopy(model_original)
+    print('Tuckerification...')
+    model_tuckerified = tuckerify_model(model_tuckerified)
+    n_params_tuckerified = count_parameters(model_tuckerified)
 
-    print(f'Original # parameters: {count_parameters(model)}')
-    model = tuckerify_model(model)
-    print(f'# parameters after tuckerification: {count_parameters(model)}')
+    print(f'No. parameters original = {n_params_original}')
+    print(
+        f'No. parameters tuckerified = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
 
-    train(device, model, train_loader)
-    test(device, model, test_loader)
+    train_test('original model', model_original, train_loader, test_loader)
+    train_test('tuckerified model', model_tuckerified,
+               train_loader, test_loader)
 
 
 if __name__ == '__main__':
