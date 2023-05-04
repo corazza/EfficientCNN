@@ -1,50 +1,107 @@
 import IPython
 import numpy as np
+import tensorly as tl
 import torch
 import torch.nn as nn
-import torchvision
 import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torchvision.datasets import CIFAR10
-from torch.utils.data import DataLoader
-
-import torch
-import torch.nn as nn
 import torch.optim as optim
+import torchvision.models as models
 import torchvision.transforms as transforms
-from torchvision.datasets import CIFAR10
+from tensorly.decomposition import partial_tucker
 from torch.utils.data import DataLoader
+from torchvision.datasets import CIFAR10
+
+import VBMF
+from consts import *
 
 
-class Network(nn.Module):
-    def __init__(self):
-        super(Network, self).__init__()
+def estimate_ranks(layer):
+    weights = layer.weight.data
+    unfold_0 = tl.base.unfold(weights, 0)
+    unfold_1 = tl.base.unfold(weights, 1)
+    _, diag_0, _, _ = VBMF.EVBMF(unfold_0)
+    _, diag_1, _, _ = VBMF.EVBMF(unfold_1)
+    ranks = [diag_0.shape[0], diag_1.shape[1]]
+    return ranks
 
-        self.conv1 = nn.Conv2d(
-            in_channels=3, out_channels=12, kernel_size=5, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(12)
-        self.conv2 = nn.Conv2d(
-            in_channels=12, out_channels=12, kernel_size=5, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(12)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv4 = nn.Conv2d(
-            in_channels=12, out_channels=24, kernel_size=5, stride=1, padding=1)
-        self.bn4 = nn.BatchNorm2d(24)
-        self.conv5 = nn.Conv2d(
-            in_channels=24, out_channels=24, kernel_size=5, stride=1, padding=1)
-        self.bn5 = nn.BatchNorm2d(24)
-        self.fc1 = nn.Linear(24*10*10, 10)
 
-    def forward(self, input):
-        output = F.relu(self.bn1(self.conv1(input)))
-        output = F.relu(self.bn2(self.conv2(output)))
-        output = self.pool(output)
-        output = F.relu(self.bn4(self.conv4(output)))
-        output = F.relu(self.bn5(self.conv5(output)))
-        output = output.view(-1, 24*10*10)
-        output = self.fc1(output)
+def tucker_decomposition_conv_layer(layer):
+    tl.set_backend('pytorch')
 
-        return output
+    ranks = estimate_ranks(layer)
+
+    (core, factors), rec_errors = \
+        partial_tucker(layer.weight,
+                       modes=[0, 1], rank=ranks, init='svd')
+    last, first = factors
+
+    first_layer = torch.nn.Conv2d(in_channels=first.shape[0],
+                                  out_channels=first.shape[1], kernel_size=1,
+                                  stride=1, padding=0, dilation=layer.dilation, bias=False)
+
+    core_layer = torch.nn.Conv2d(in_channels=core.shape[1],
+                                 out_channels=core.shape[0], kernel_size=layer.kernel_size,
+                                 stride=layer.stride, padding=layer.padding, dilation=layer.dilation,
+                                 bias=False)
+
+    last_layer = torch.nn.Conv2d(in_channels=last.shape[1],
+                                 out_channels=last.shape[0], kernel_size=1, stride=1,
+                                 padding=0, dilation=layer.dilation, bias=True)
+
+    first_layer.weight.data = \
+        torch.transpose(first, 1, 0).unsqueeze(-1).unsqueeze(-1)
+    last_layer.weight.data = last.unsqueeze(-1).unsqueeze(-1)
+    core_layer.weight.data = core
+
+    new_layers = [first_layer, core_layer, last_layer]
+    return nn.Sequential(*new_layers)
+
+
+def train(device, model, train_loader):
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    for epoch in range(NUM_EPOCHS):
+        running_loss = 0.0
+        for i, (inputs, labels) in enumerate(train_loader, 0):
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        epoch_loss = running_loss / (i + 1)
+        print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.4f}")
+    print("Training finished.")
+
+
+def test(device, model, test_loader):
+    correct = 0
+    total = 0
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    accuracy = 100 * correct / total
+    print(f"Accuracy of the model on the 10000 test images: {accuracy:.2f}%")
+
+
+def tuckerify_model(model):
+    conv1_layer = model.conv1
+    new_conv1 = tucker_decomposition_conv_layer(conv1_layer)
+    model.conv1 = new_conv1
+    return model
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def main():
@@ -65,42 +122,17 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=100,
                              shuffle=False, num_workers=2)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available() else "cpu")
 
-    model = Network().to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # model = Network().to(device)
+    model = models.resnet18(pretrained=True)
+    print(f'Original # parameters: {count_parameters(model)}')
+    model = tuckerify_model(model)
+    print(f'# parameters after tuckerification: {count_parameters(model)}')
 
-    num_epochs = 20
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        for i, (inputs, labels) in enumerate(train_loader, 0):
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-
-        epoch_loss = running_loss / (i + 1)
-        print(f"Epoch {epoch + 1}, Loss: {epoch_loss:.4f}")
-
-    print("Training finished.")
-
-    correct = 0
-    total = 0
-    model.eval()
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    accuracy = 100 * correct / total
-    print(f"Accuracy of the model on the 10000 test images: {accuracy:.2f}%")
+    # train(device, model, train_loader)
+    # test(device, model, test_loader)
 
     IPython.embed()
 
