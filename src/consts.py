@@ -1,4 +1,7 @@
-NUM_EPOCHS = 2
+NUM_EPOCHS = 20
+
+TUCKER_ITERATIONS = 100
+PARAFAC_ITERATIONS = 50
 
 RANKS_VBMF = [
     [29, 2],
@@ -24,10 +27,5 @@ RANKS_VBMF = [
 RANKS_HARD = [[int(x/2) if x > 10 else x, int(y/2) if y > 10 else y]
               for [x, y] in RANKS_VBMF]
 
-RANKS_CP = [[int(x/10) if x > 10 else x, int(y/10) if y > 10 else y]
+RANKS_CP = [[int(x) if x > 10 else x, int(y) if y > 10 else y]
             for [x, y] in RANKS_VBMF]
-
-# RANKS_CP = RANKS_HARD
-
-
-RANKS = RANKS_HARD

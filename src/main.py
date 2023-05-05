@@ -36,9 +36,12 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     if ranks == None:
         ranks = estimate_ranks(layer)
 
+    print('Tucker',  f'rank={ranks}', layer.weight.shape,
+          f'n_iter_max={TUCKER_ITERATIONS}')
+
     (core, factors), rec_errors = \
         partial_tucker(layer.weight,
-                       modes=[0, 1], rank=ranks, init='svd')
+                       modes=[0, 1], rank=ranks, init='svd', n_iter_max=TUCKER_ITERATIONS)
     last, first = factors
 
     first_layer = torch.nn.Conv2d(in_channels=first.shape[0],
@@ -70,15 +73,24 @@ def cp_decomposition_conv_layer(layer, ranks=None):
 
     rank = max(ranks)
 
-    print(rank, layer.weight.shape)
-
-    # if layer.weight.shape[0] >= 512:
+    # if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
     #     return layer
+    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
+        rank = min(20, rank)
+    if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
+        rank = min(15, rank)
+    if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
+        rank = min(10, rank)
+    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
+        rank = min(50, rank)
 
-    # last, first, vertical, horizontal = parafac(
-    #     layer.weight, rank=rank, init='random')[1]
-    first, last, vertical, horizontal = parafac(
-        layer.weight, rank=rank, init='random')[1]
+    # rank = min(30, rank)
+
+    print('CP', f'rank={rank}', layer.weight.shape,
+          f'n_iter_max={PARAFAC_ITERATIONS}')
+
+    last, first, vertical, horizontal = parafac(
+        layer.weight, rank=rank, init='random', n_iter_max=PARAFAC_ITERATIONS)[1]
 
     pointwise_s_to_r_layer = nn.Conv2d(in_channels=first.shape[0],
                                        out_channels=first.shape[1],
