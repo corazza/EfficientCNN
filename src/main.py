@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.models as models
 import torchvision.transforms as transforms
-from tensorly.decomposition import parafac, partial_tucker
+from tensorly.decomposition import parafac, partial_tucker, tensor_train
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 
@@ -65,6 +65,10 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     new_layers = [first_layer, core_layer, last_layer]
     # print(ranks)
     return nn.Sequential(*new_layers)
+
+
+def tt_decomposition_conv_layer(layer, ranks=None):
+    IPython.embed()
 
 
 def cp_decomposition_conv_layer(layer, ranks=None):
@@ -251,22 +255,32 @@ def main():
     #     model_tuckerified, rank_wrapper(tucker_decomposition_conv_layer, RANKS_HARD))
     # n_params_tuckerified = count_parameters(model_tuckerified)
 
-    model_cp = copy.deepcopy(model_original)
-    print('Model optimization (CP)...')
-    model_cp = optimize_model(
-        model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
-    n_params_cp = count_parameters(model_cp)
+    # model_cp = copy.deepcopy(model_original)
+    # print('Model optimization (CP)...')
+    # model_cp = optimize_model(
+    #     model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
+    # n_params_cp = count_parameters(model_cp)
+
+    model_tt = copy.deepcopy(model_original)
+    print('Model optimization (TT)...')
+    model_tt = optimize_model(
+        model_tt, rank_wrapper(tt_decomposition_conv_layer, RANKS_CP))
+    n_params_tt = count_parameters(model_tt)
 
     print(f'No. parameters original = {n_params_original}')
     # print(
     #     f'No. parameters optimized (Tucker) = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
+    # print(
+    #     f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
     print(
-        f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
+        f'No. parameters optimized (TT) = {n_params_tt} ({(n_params_tt / n_params_original)*100:.4f}%)')
 
     # train_test('original model', model_original, train_loader, test_loader)
     # train_test('optimized model (Tucker)', model_tuckerified,
     #            train_loader, test_loader)
-    train_test('optimized model (CP)', model_cp,
+    # train_test('optimized model (CP)', model_cp,
+    #            train_loader, test_loader)
+    train_test('optimized model (TT)', model_tt,
                train_loader, test_loader)
 
 
