@@ -66,9 +66,88 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     # print(ranks)
     return nn.Sequential(*new_layers)
 
+class Reshape(torch.nn.Module):
+    def __init__(self, sh):
+        super(Reshape, self).__init__()
+        self.sh = tuple(sh)
+
+    def forward(self, x):
+        temp = (x.shape[0],) + self.sh + (x.shape[2], x.shape[3])
+        return x.view(temp)
+    
+def prime_factorization(n):
+    i = 2
+    factors = []
+    while i * i <= n:
+        if n % i:
+            i += 1
+        else:
+            n //= i
+            factors.append(i)
+    if n > 1:
+        factors.append(n)
+    return factors
 
 def tt_decomposition_conv_layer(layer, ranks=None):
-    IPython.embed()
+    if ranks == None:
+        ranks = estimate_ranks(layer)
+        
+    rank = max(ranks)
+    
+    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
+        rank = min(20, rank)
+    if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
+        rank = min(15, rank)
+    if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
+        rank = min(10, rank)
+    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
+        rank = min(50, rank)
+
+    print('Tensor Train',  f'rank={ranks}', layer.weight.shape,
+          f'n_iter_max={TUCKER_ITERATIONS}')
+    
+    s = layer.weight.shape
+    new_s = (s[2] * s[3] * s[1], s[0])
+    new_layer = layer.weight.detach().numpy().transpose(2, 3, 1, 0).reshape(new_s)
+    ff = prime_factorization(s[1])
+    fg = prime_factorization(s[0])
+    mn = min(len(ff), len(fg))
+    
+    if len(ff) > len(fg):
+        temp = ff[mn:]
+        ff = ff[:mn]
+        for i in temp:
+            ff[-1]*=i
+
+    else:
+        temp = fg[mn:]
+        fg = fg[:mn]
+        for i in temp:
+            fg[-1]*=i
+    
+    L = [s[2] * s[3]]
+    
+    for i, e in enumerate(fg):
+        L.append(ff[i] * e)
+        
+    T = new_layer.reshape(L)
+    deco = tensor_train(torch.tensor(T), rank)
+    
+    reshape_layer = Reshape(ff)
+    final_layers = [reshape_layer]
+    
+    for i in deco:
+        temp_layer = torch.nn.Conv2d(in_channels=i.shape[0], 
+                                     out_channels=i.shape[2], kernel_size=i.shape[1], 
+                                     stride=1, padding=0, dilation=layer.dilation, bias=False)
+        temp_layer.weight.data = i.unsqueeze_(-1)
+        final_layers.append(copy.deepcopy(temp_layer))
+    
+    batchnorm_layer = torch.nn.BatchNorm2d(3)
+    final_layers.append(batchnorm_layer)
+
+    # print(ranks)
+    return nn.Sequential(*final_layers)
 
 
 def cp_decomposition_conv_layer(layer, ranks=None):
