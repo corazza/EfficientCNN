@@ -66,6 +66,7 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     # print(ranks)
     return nn.Sequential(*new_layers)
 
+
 class Reshape(torch.nn.Module):
     def __init__(self, sh):
         super(Reshape, self).__init__()
@@ -74,7 +75,8 @@ class Reshape(torch.nn.Module):
     def forward(self, x):
         temp = (x.shape[0],) + self.sh + (x.shape[2], x.shape[3])
         return x.view(temp)
-    
+
+
 def prime_factorization(n):
     i = 2
     factors = []
@@ -88,12 +90,13 @@ def prime_factorization(n):
         factors.append(n)
     return factors
 
+
 def tt_decomposition_conv_layer(layer, ranks=None):
     if ranks == None:
         ranks = estimate_ranks(layer)
-        
+
     rank = max(ranks)
-    
+
     if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
         rank = min(20, rank)
     if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
@@ -105,49 +108,58 @@ def tt_decomposition_conv_layer(layer, ranks=None):
 
     print('Tensor Train',  f'rank={ranks}', layer.weight.shape,
           f'n_iter_max={TUCKER_ITERATIONS}')
-    
+
     s = layer.weight.shape
     new_s = (s[2] * s[3] * s[1], s[0])
     new_layer = layer.weight.detach().numpy().transpose(2, 3, 1, 0).reshape(new_s)
     ff = prime_factorization(s[1])
     fg = prime_factorization(s[0])
     mn = min(len(ff), len(fg))
-    
+
     if len(ff) > len(fg):
         temp = ff[mn:]
         ff = ff[:mn]
         for i in temp:
-            ff[-1]*=i
+            ff[-1] *= i
 
     else:
         temp = fg[mn:]
         fg = fg[:mn]
         for i in temp:
-            fg[-1]*=i
-    
+            fg[-1] *= i
+
     L = [s[2] * s[3]]
-    
+
     for i, e in enumerate(fg):
         L.append(ff[i] * e)
-        
+
     T = new_layer.reshape(L)
     deco = tensor_train(torch.tensor(T), rank)
-    
+
     reshape_layer = Reshape(ff)
     final_layers = [reshape_layer]
-    
-    for i in deco:
-        temp_layer = torch.nn.Conv2d(in_channels=i.shape[0], 
-                                     out_channels=i.shape[2], kernel_size=i.shape[1], 
+    # final_layers = []
+
+    temp_layer = torch.nn.Conv2d(in_channels=deco[0].shape[0],
+                                 out_channels=deco[0].shape[2], kernel_size=layer.kernel_size,
+                                 stride=1, padding=0, dilation=layer.dilation, bias=False)
+    temp_layer.weight.data = deco[0].unsqueeze_(-1)
+    final_layers.append(copy.deepcopy(temp_layer))
+
+    for i in deco[1:]:
+        temp_layer = torch.nn.Conv2d(in_channels=i.shape[0],
+                                     out_channels=i.shape[2], kernel_size=layer.kernel_size,
                                      stride=1, padding=0, dilation=layer.dilation, bias=False)
         temp_layer.weight.data = i.unsqueeze_(-1)
         final_layers.append(copy.deepcopy(temp_layer))
-    
-    batchnorm_layer = torch.nn.BatchNorm2d(3)
-    final_layers.append(batchnorm_layer)
+
+    # batchnorm_layer = torch.nn.BatchNorm2d(3)
+    # final_layers.append(batchnorm_layer)
+
+    result = nn.Sequential(*final_layers)
 
     # print(ranks)
-    return nn.Sequential(*final_layers)
+    return result
 
 
 def cp_decomposition_conv_layer(layer, ranks=None):
@@ -158,14 +170,13 @@ def cp_decomposition_conv_layer(layer, ranks=None):
 
     # if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
     #     return layer
-    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
-        rank = min(20, rank)
-    if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
-        rank = min(15, rank)
-    if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
-        rank = min(10, rank)
+    rank = 100
     if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
         rank = min(50, rank)
+    if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
+        rank = min(20, rank)
+    if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
+        rank = min(15, rank)
 
     # rank = min(30, rank)
 
@@ -200,13 +211,13 @@ def cp_decomposition_conv_layer(layer, ranks=None):
         pointwise_r_to_t_layer.bias.data = layer.bias.data
 
     sr = first.t_().unsqueeze_(-1).unsqueeze_(-1)
-    rt = last.unsqueeze_(-1).unsqueeze_(-1)
     rr = torch.stack([vertical.narrow(
         1, i, 1) @ torch.t(horizontal).narrow(0, i, 1) for i in range(rank)]).unsqueeze_(1)
+    rt = last.unsqueeze_(-1).unsqueeze_(-1)
 
     pointwise_s_to_r_layer.weight.data = sr
-    pointwise_r_to_t_layer.weight.data = rt
     depthwise_r_to_r_layer.weight.data = rr
+    pointwise_r_to_t_layer.weight.data = rt
 
     new_layers = [pointwise_s_to_r_layer,
                   depthwise_r_to_r_layer, pointwise_r_to_t_layer]
@@ -217,7 +228,7 @@ def cp_decomposition_conv_layer(layer, ranks=None):
 def optimize_model(model, optim_conv_layer):
     conv1_layer = model.conv1
 
-    model.conv1 = optim_conv_layer(conv1_layer)
+    # model.conv1 = optim_conv_layer(conv1_layer)
 
     for i in range(2):
         layer1_conv1 = model.layer1[i].conv1
@@ -328,17 +339,17 @@ def main():
     model_original = models.resnet18(pretrained=True)
     n_params_original = count_parameters(model_original)
 
-    # model_tuckerified = copy.deepcopy(model_original)
-    # print('Model optimization (Tucker)...')
-    # model_tuckerified = optimize_model(
-    #     model_tuckerified, rank_wrapper(tucker_decomposition_conv_layer, RANKS_HARD))
-    # n_params_tuckerified = count_parameters(model_tuckerified)
+    model_tuckerified = copy.deepcopy(model_original)
+    print('Model optimization (Tucker)...')
+    model_tuckerified = optimize_model(
+        model_tuckerified, rank_wrapper(tucker_decomposition_conv_layer, RANKS_HARD))
+    n_params_tuckerified = count_parameters(model_tuckerified)
 
-    # model_cp = copy.deepcopy(model_original)
-    # print('Model optimization (CP)...')
-    # model_cp = optimize_model(
-    #     model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
-    # n_params_cp = count_parameters(model_cp)
+    model_cp = copy.deepcopy(model_original)
+    print('Model optimization (CP)...')
+    model_cp = optimize_model(
+        model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
+    n_params_cp = count_parameters(model_cp)
 
     model_tt = copy.deepcopy(model_original)
     print('Model optimization (TT)...')
@@ -347,20 +358,20 @@ def main():
     n_params_tt = count_parameters(model_tt)
 
     print(f'No. parameters original = {n_params_original}')
-    # print(
-    #     f'No. parameters optimized (Tucker) = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
-    # print(
-    #     f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
+    print(
+        f'No. parameters optimized (Tucker) = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
+    print(
+        f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
     print(
         f'No. parameters optimized (TT) = {n_params_tt} ({(n_params_tt / n_params_original)*100:.4f}%)')
 
-    # train_test('original model', model_original, train_loader, test_loader)
-    # train_test('optimized model (Tucker)', model_tuckerified,
-    #            train_loader, test_loader)
-    # train_test('optimized model (CP)', model_cp,
-    #            train_loader, test_loader)
-    train_test('optimized model (TT)', model_tt,
+    train_test('original model', model_original, train_loader, test_loader)
+    train_test('optimized model (Tucker)', model_tuckerified,
                train_loader, test_loader)
+    train_test('optimized model (CP)', model_cp,
+               train_loader, test_loader)
+    # train_test('optimized model (TT)', model_tt,
+    #            train_loader, test_loader)
 
 
 if __name__ == '__main__':
