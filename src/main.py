@@ -268,13 +268,13 @@ def rank_wrapper(decomp_layer, ranks):
     return optim_conv_layer
 
 
-def train(model, train_loader):
+def train(num_epochs: int, model, train_loader):
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(num_epochs):
         running_loss = 0.0
         for i, (inputs, labels) in enumerate(train_loader, 0):
             inputs, labels = inputs.to(device), labels.to(device)
@@ -306,8 +306,8 @@ def test(model, test_loader) -> float:
     return 100 * correct / total
 
 
-def train_test(name: str, model, train_loader, test_loader):
-    print(f'Training {name} for {NUM_EPOCHS} epochs')
+def train_test(num_epochs: int, name: str, model, train_loader, test_loader):
+    print(f'Training {name} for {num_epochs} epochs')
     start = timer()
     train(model, train_loader)
     end = timer()
@@ -316,7 +316,7 @@ def train_test(name: str, model, train_loader, test_loader):
         f'Done, accuracy = {accuracy:.4f}%, training time = {end - start:.4f}s')
 
 
-def main():
+def main(num_epochs: int):
     transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomCrop(32, padding=4),
@@ -365,14 +365,15 @@ def main():
     print(
         f'No. parameters optimized (TT) = {n_params_tt} ({(n_params_tt / n_params_original)*100:.4f}%)')
 
-    train_test('original model', model_original, train_loader, test_loader)
-    train_test('optimized model (Tucker)', model_tuckerified,
+    train_test(num_epochs, 'original model',
+               model_original, train_loader, test_loader)
+    train_test(num_epochs, 'optimized model (Tucker)', model_tuckerified,
                train_loader, test_loader)
-    train_test('optimized model (CP)', model_cp,
+    train_test(num_epochs, 'optimized model (CP)', model_cp,
                train_loader, test_loader)
-    # train_test('optimized model (TT)', model_tt,
+    # train_test(num_epochs, 'optimized model (TT)', model_tt,
     #            train_loader, test_loader)
 
 
 if __name__ == '__main__':
-    main()
+    main(NUM_EPOCHS)
