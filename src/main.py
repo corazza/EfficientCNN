@@ -345,11 +345,11 @@ def main(num_epochs: int):
         model_tuckerified, rank_wrapper(tucker_decomposition_conv_layer, RANKS_HARD))
     n_params_tuckerified = count_parameters(model_tuckerified)
 
-    # model_cp = copy.deepcopy(model_original)
-    # print('Model optimization (CP)...')
-    # model_cp = optimize_model(
-    #     model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
-    # n_params_cp = count_parameters(model_cp)
+    model_cp = copy.deepcopy(model_original)
+    print('Model optimization (CP)...')
+    model_cp = optimize_model(
+        model_cp, rank_wrapper(cp_decomposition_conv_layer, RANKS_CP))
+    n_params_cp = count_parameters(model_cp)
 
     model_tt = copy.deepcopy(model_original)
     print('Model optimization (TT)...')
@@ -360,8 +360,8 @@ def main(num_epochs: int):
     print(f'No. parameters original = {n_params_original}')
     print(
         f'No. parameters optimized (Tucker) = {n_params_tuckerified} ({(n_params_tuckerified / n_params_original)*100:.4f}%)')
-    # print(
-    #     f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
+    print(
+        f'No. parameters optimized (CP) = {n_params_cp} ({(n_params_cp / n_params_original)*100:.4f}%)')
     print(
         f'No. parameters optimized (TT) = {n_params_tt} ({(n_params_tt / n_params_original)*100:.4f}%)')
 
@@ -369,8 +369,8 @@ def main(num_epochs: int):
                model_original, train_loader, test_loader)
     train_test(num_epochs, 'optimized model (Tucker)', model_tuckerified,
                train_loader, test_loader)
-    # train_test(num_epochs, 'optimized model (CP)', model_cp,
-    #            train_loader, test_loader)
+    train_test(num_epochs, 'optimized model (CP)', model_cp,
+               train_loader, test_loader)
     # train_test(num_epochs, 'optimized model (TT)', model_tt,
     #            train_loader, test_loader)
 
