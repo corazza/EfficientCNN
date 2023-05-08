@@ -17,12 +17,34 @@ from torchvision.datasets import CIFAR10
 import VBMF
 from consts import *
 
+"""
+Most of the heavy lifting is done by the following functions:
+
+    - `tucker_decomposition_conv_layer`
+    - `cp_decomposition_conv_layer`
+    - `tt_decomposition_conv_layer`
+
+Each of them is applied to the model using `optimize_model`.
+
+`train` and `test` are standard train/evaluation loops.
+"""
+
 
 def count_parameters(model):
+    """
+    Returns the number of trainable parameters in the model.
+
+    This is used to report model size optimization results.
+    """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def estimate_ranks(layer):
+    """
+    This is called unless the user provides ranks themselves.
+
+    The ranks we use were first obtained via EVBMF but are now stored in src/consts.py
+    """
     weights = layer.weight.data
     unfold_0 = tl.base.unfold(weights, 0)
     unfold_1 = tl.base.unfold(weights, 1)
@@ -33,17 +55,24 @@ def estimate_ranks(layer):
 
 
 def tucker_decomposition_conv_layer(layer, ranks=None):
+    """
+    Optimizes a single Conv layer using the Tucker decomposition.
+    """
+
+    # Estimate rank from scratch or use user-provided?
     if ranks == None:
         ranks = estimate_ranks(layer)
 
     print('Tucker',  f'rank={ranks}', layer.weight.shape,
           f'n_iter_max={TUCKER_ITERATIONS}')
 
+    # Main part of the function, we call partial_tucker from Tensorly
     (core, factors), rec_errors = \
         partial_tucker(layer.weight,
                        modes=[0, 1], rank=ranks, init='svd', n_iter_max=TUCKER_ITERATIONS)
     last, first = factors
 
+    # The core/factors are used to construct new Conv layers, refer to the formula in the article for the rationale.
     first_layer = torch.nn.Conv2d(in_channels=first.shape[0],
                                   out_channels=first.shape[1], kernel_size=1,
                                   stride=1, padding=0, dilation=layer.dilation, bias=False)
@@ -63,11 +92,13 @@ def tucker_decomposition_conv_layer(layer, ranks=None):
     core_layer.weight.data = core
 
     new_layers = [first_layer, core_layer, last_layer]
-    # print(ranks)
+
     return nn.Sequential(*new_layers)
 
 
 class Reshape(torch.nn.Module):
+    """Potentially unnecessary."""
+
     def __init__(self, sh):
         super(Reshape, self).__init__()
         self.sh = tuple(sh)
@@ -92,19 +123,12 @@ def prime_factorization(n):
 
 
 def tt_decomposition_conv_layer(layer, ranks=None):
+    """Doesn't work as of yet."""
+
     if ranks == None:
         ranks = estimate_ranks(layer)
 
     rank = max(ranks)
-
-    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
-        rank = min(20, rank)
-    if layer.weight.shape[0] >= 512 or layer.weight.shape[1] >= 512:
-        rank = min(15, rank)
-    if layer.weight.shape[0] >= 512 and layer.weight.shape[1] >= 512:
-        rank = min(10, rank)
-    if layer.weight.shape[0] >= 256 or layer.weight.shape[1] >= 256:
-        rank = min(50, rank)
 
     print('Tensor Train',  f'rank={ranks}', layer.weight.shape,
           f'n_iter_max={TUCKER_ITERATIONS}')
@@ -136,9 +160,8 @@ def tt_decomposition_conv_layer(layer, ranks=None):
     T = new_layer.reshape(L)
     deco = tensor_train(torch.tensor(T), rank)
 
-    reshape_layer = Reshape(ff)
+    reshape_layer = Reshape(ff)  # this reshape is potentially unnecessary
     final_layers = [reshape_layer]
-    # final_layers = []
 
     temp_layer = torch.nn.Conv2d(in_channels=deco[0].shape[0],
                                  out_channels=deco[0].shape[2], kernel_size=layer.kernel_size,
@@ -158,7 +181,6 @@ def tt_decomposition_conv_layer(layer, ranks=None):
 
     result = nn.Sequential(*final_layers)
 
-    # print(ranks)
     return result
 
 
@@ -226,8 +248,10 @@ def cp_decomposition_conv_layer(layer, ranks=None):
 
 
 def optimize_model(model, optim_conv_layer):
-    conv1_layer = model.conv1
+    """Applies an optimization function to each conv layer of ResNet18."""
 
+    # The first conv layer contains a miniscule fraction of total parameters, we will skip optimizing it.
+    # conv1_layer = model.conv1
     # model.conv1 = optim_conv_layer(conv1_layer)
 
     for i in range(2):
@@ -258,6 +282,7 @@ def optimize_model(model, optim_conv_layer):
 
 
 def rank_wrapper(decomp_layer, ranks):
+    """Simple utility for optimize_model."""
     rank_i = 0
 
     def optim_conv_layer(layer):
@@ -269,6 +294,8 @@ def rank_wrapper(decomp_layer, ranks):
 
 
 def train(num_epochs: int, model, train_loader):
+    """Standard training loop we use for fine-tuning."""
+
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
@@ -289,6 +316,8 @@ def train(num_epochs: int, model, train_loader):
 
 
 def test(model, test_loader) -> float:
+    """Evaluation loop used in reporting results in the article."""
+
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() else "cpu")
     correct = 0
